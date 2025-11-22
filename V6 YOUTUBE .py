@@ -93,7 +93,7 @@ CONFIG = {
     # o directamente aquí (menos seguro)
 
     "openai": {
-        "api_key": os.environ.get("OPENAI_API_KEY", "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"),
+        "api_key": os.environ.get("OPENAI_API_KEY", "xxxx"),
         "model": "gpt-4o",        # Opciones: gpt-4o-mini (barato) | gpt-4o (mejor calidad)
         "language": "es",              # Idioma del resumen: es | en | fr | de | etc.
         "max_chars": 25000,            # Límite de caracteres a procesar (↑ = resúmenes más extensos)
