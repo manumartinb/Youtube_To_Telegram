@@ -2,10 +2,9 @@ import time
 import json
 import os
 import urllib.parse
-import smtplib
-from email.message import EmailMessage
 
 import feedparser
+import requests
 from openai import OpenAI
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -34,29 +33,21 @@ CONFIG = {
 
     # Config OpenAI (resumen)
     "openai": {
-        # Ojo: si puedes, mejor usar variable de entorno, pero tú decides:
-        # os.environ.get("OPENAI_API_KEY") o ponerla directamente:
-        "api_key": "PON_AQUI_TU_API_KEY",
-        "model": "gpt-4.1-mini",   # o gpt-4o-mini, o el que prefieras
+        # Mejor usar variable de entorno: os.environ.get("OPENAI_API_KEY")
+        "api_key": os.environ.get("OPENAI_API_KEY", "PON_AQUI_TU_API_KEY"),
+        "model": "gpt-4o-mini",    # o gpt-4-turbo, según tu presupuesto
         "language": "es",          # idioma del resumen
         "max_chars": 8000,         # recorte máximo de texto a enviar al modelo
     },
 
-    # Configuración de email (SMTP)
-    "email": {
-        "from": "tu_email@example.com",
-        "to": ["destinatario@example.com"],  # puedes poner varios
-        "subject_template": "[YouTube] Resumen nuevo vídeo - {channel} - {title}",
-
-        # SMTP típico de Gmail (ejemplo)
-        "smtp_server": "smtp.gmail.com",
-        "smtp_port": 587,
-        "username": "tu_email@example.com",
-        "password": "TU_APP_PASSWORD_O_PASSWORD_SMTP",
-
-        # TLS/SSL (para Gmail: TLS = True, SSL = False)
-        "use_tls": True,
-        "use_ssl": False,
+    # Configuración de Telegram
+    "telegram": {
+        # Token del bot (obtenerlo de @BotFather)
+        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", "PON_AQUI_TU_BOT_TOKEN"),
+        # Tu chat ID (puedes obtenerlo con @userinfobot)
+        "chat_id": os.environ.get("TELEGRAM_CHAT_ID", "PON_AQUI_TU_CHAT_ID"),
+        # Límite de caracteres por mensaje de Telegram
+        "max_message_length": 4096,
     },
 }
 
@@ -197,35 +188,55 @@ def build_summary(client, cfg_openai, video, transcript_text):
     base_text = base_text[:max_chars]
 
     prompt_user = f"""
-Quiero que resumas el contenido de un vídeo de YouTube a partir de su {source_info}.
+Analiza este vídeo de YouTube y genera un RESUMEN EJECUTIVO sin paja.
 
-Título del vídeo: {video['title']}
-Canal: {video['channel']}
-Fecha de publicación (si está disponible): {video.get('published','')}
+📹 VÍDEO: {video['title']}
+📢 CANAL: {video['channel']}
+📅 FECHA: {video.get('published','')}
 
-Texto a resumir:
+CONTENIDO ({source_info}):
 \"\"\"{base_text}\"\"\"
 
-Necesito un resumen estructurado en {language} con este formato (usa siempre encabezados y viñetas):
+INSTRUCCIONES ESTRICTAS:
+- SOLO información de alto valor
+- DATOS concretos, cifras, estadísticas
+- CONCLUSIONES clave y aplicables
+- INSIGHTS únicos o contraintuitivos
+- SIN introducciones, SIN relleno, SIN obviedades
 
-1. Idea principal (2-3 frases)
-2. Puntos clave (viñetas, 5-10 bullets cortos)
-3. Conceptos técnicos o definiciones importantes (si aplica)
-4. Aplicaciones prácticas / ideas accionables
-5. Advertencias, limitaciones o sesgos del contenido (si se perciben)
+FORMATO REQUERIDO:
 
-Máximo ~300 palabras. Sé directo y evita relleno inútil.
+🎯 IDEA CENTRAL (1 frase máximo)
+[la tesis principal del vídeo]
+
+💡 PUNTOS CLAVE
+• [dato/conclusión concreta 1]
+• [dato/conclusión concreta 2]
+• [dato/conclusión concreta 3]
+[entre 3-7 bullets, cada uno debe aportar valor real]
+
+📊 DATOS DE VALOR (si aplica)
+• [cifras, estadísticas, números concretos]
+
+⚠️ ADVERTENCIAS (si aplica)
+• [sesgos, limitaciones, contraindicaciones]
+
+🔑 ACCIÓN RECOMENDADA (1-2 frases)
+[qué hacer con esta información]
+
+Máximo 250 palabras. Idioma: {language}. Prioriza densidad de información sobre extensión.
 """
 
     response = client.chat.completions.create(
         model=model,
-        temperature=0.3,
+        temperature=0.2,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "Eres un asistente que resume vídeos de YouTube de forma clara, "
-                    "concisa y estructurada para un inversor ocupado."
+                    "Eres un analista experto que extrae SOLO información de alto valor. "
+                    "Eliminas paja, relleno y obviedades. Priorizas datos concretos, "
+                    "conclusiones accionables e insights únicos. Máxima densidad informativa."
                 ),
             },
             {"role": "user", "content": prompt_user},
@@ -235,28 +246,54 @@ Máximo ~300 palabras. Sé directo y evita relleno inútil.
     return response.choices[0].message.content.strip()
 
 
-def send_email(email_cfg, subject, body):
-    """Envía un email sencillo de texto plano con el resumen."""
-    msg = EmailMessage()
-    msg["From"] = email_cfg["from"]
-    msg["To"] = ", ".join(email_cfg["to"])
-    msg["Subject"] = subject
-    msg.set_content(body)
+def send_telegram(telegram_cfg, message):
+    """Envía un mensaje a Telegram usando la Bot API."""
+    bot_token = telegram_cfg["bot_token"]
+    chat_id = telegram_cfg["chat_id"]
+    max_length = telegram_cfg.get("max_message_length", 4096)
+
+    # Si el mensaje es muy largo, dividirlo en partes
+    if len(message) > max_length:
+        parts = []
+        current_part = ""
+        for line in message.split("\n"):
+            if len(current_part) + len(line) + 1 <= max_length:
+                current_part += line + "\n"
+            else:
+                if current_part:
+                    parts.append(current_part)
+                current_part = line + "\n"
+        if current_part:
+            parts.append(current_part)
+    else:
+        parts = [message]
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
     try:
-        if email_cfg.get("use_ssl"):
-            with smtplib.SMTP_SSL(email_cfg["smtp_server"], email_cfg["smtp_port"]) as server:
-                server.login(email_cfg["username"], email_cfg["password"])
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(email_cfg["smtp_server"], email_cfg["smtp_port"]) as server:
-                if email_cfg.get("use_tls"):
-                    server.starttls()
-                server.login(email_cfg["username"], email_cfg["password"])
-                server.send_message(msg)
-        print("[INFO] Email enviado correctamente.")
-    except Exception as e:
-        print(f"[ERROR] Error enviando email: {e}")
+        for i, part in enumerate(parts):
+            payload = {
+                "chat_id": chat_id,
+                "text": part,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": False,
+            }
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+
+            if len(parts) > 1:
+                print(f"[INFO] Mensaje enviado a Telegram (parte {i+1}/{len(parts)}).")
+            else:
+                print("[INFO] Mensaje enviado a Telegram correctamente.")
+
+            # Pequeña pausa entre mensajes si hay múltiples partes
+            if i < len(parts) - 1:
+                time.sleep(1)
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Error enviando mensaje a Telegram: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"[ERROR] Respuesta: {e.response.text}")
 
 
 # ==========================
@@ -265,11 +302,18 @@ def send_email(email_cfg, subject, body):
 
 def run_forever():
     cfg = CONFIG
-    email_cfg = cfg["email"]
+    telegram_cfg = cfg["telegram"]
     openai_cfg = cfg["openai"]
 
-    if not openai_cfg.get("api_key"):
-        raise RuntimeError("Configura tu API key de OpenAI en CONFIG['openai']['api_key'].")
+    # Validaciones de configuración
+    if not openai_cfg.get("api_key") or openai_cfg["api_key"] == "PON_AQUI_TU_API_KEY":
+        raise RuntimeError("Configura tu API key de OpenAI en CONFIG['openai']['api_key'] o como variable de entorno OPENAI_API_KEY.")
+
+    if not telegram_cfg.get("bot_token") or telegram_cfg["bot_token"] == "PON_AQUI_TU_BOT_TOKEN":
+        raise RuntimeError("Configura tu bot token de Telegram en CONFIG['telegram']['bot_token'] o como variable de entorno TELEGRAM_BOT_TOKEN.")
+
+    if not telegram_cfg.get("chat_id") or telegram_cfg["chat_id"] == "PON_AQUI_TU_CHAT_ID":
+        raise RuntimeError("Configura tu chat ID de Telegram en CONFIG['telegram']['chat_id'] o como variable de entorno TELEGRAM_CHAT_ID.")
 
     client = OpenAI(api_key=openai_cfg["api_key"])
     ytt_api = YouTubeTranscriptApi()
@@ -291,21 +335,17 @@ def run_forever():
                     )
                     summary = build_summary(client, openai_cfg, video, transcript_text)
 
-                    body = (
-                        f"Canal: {video['channel']}\n"
-                        f"Título: {video['title']}\n"
-                        f"Publicado: {video.get('published','')}\n"
-                        f"Enlace: {video['link']}\n\n"
-                        f"===== RESUMEN =====\n\n"
+                    # Formatear mensaje para Telegram con HTML básico
+                    message = (
+                        f"📺 <b>{video['channel']}</b>\n"
+                        f"🎬 {video['title']}\n"
+                        f"🔗 <a href=\"{video['link']}\">Ver vídeo</a>\n"
+                        f"📅 {video.get('published','')}\n\n"
+                        f"━━━━━━━━━━━━━━━━━━\n\n"
                         f"{summary}\n"
                     )
 
-                    subject = email_cfg["subject_template"].format(
-                        channel=video["channel"],
-                        title=video["title"],
-                    )
-
-                    send_email(email_cfg, subject, body)
+                    send_telegram(telegram_cfg, message)
 
                     # Marcamos el vídeo como procesado
                     processed_ids.add(video["id"])
