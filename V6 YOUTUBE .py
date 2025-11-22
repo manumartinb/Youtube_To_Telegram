@@ -23,67 +23,84 @@ CONFIG = {
     {
         "name": "Cárpatos",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCmJL2llHf2tEcDAjaz-LFgQ",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Option Omega",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHFE_BeGKyV4qyQ3Q4dafmQ",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "José Luis Cava",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCvCCLJkQpRg0NdT3zNcI08A",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Iceberg Fund",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCayvFMTzAubrfBy7ul_wHFw",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Rodrigo Villanueva",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCS5LR9INN3Ly5EyV0NksbCA",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Pablo Gil",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCPQ2dheMajZPnIleYZHzblg",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Spread Greg",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC02WvbtPYyMm1dG33UAHrDA",
+        "poll_interval_seconds": 1800,  # 30 minutos (ejemplo)
     },
     {
         "name": "Óscar López",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCjKX-osBEQxj9CrZsK9ZM9g",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "LWS",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCCVIYA5kpLvEToE8Gj8Fszw",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Vol. Vibes",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0o3EucHQKZCUagsZt6TRAA",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Theta Profits",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCzGARfberQ8nRRbsjK90BHg",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Hector Chamizo",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCfPrh2GfUkRFawG9whMacpA",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     {
         "name": "Trading Litt",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiGVu54iO0LYQSGUktEnQog",
+        "poll_interval_seconds": 3600,  # 60 minutos (ejemplo)
     },
     {
         "name": "Quant Py",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UClT4BTqePQDxFHsnrSWQ8Wg",
+        "poll_interval_seconds": 900,  # 15 minutos
     },
     # Puedes seguir añadiendo más canales copiando uno de estos bloques
+    # Cada canal ahora tiene su propio intervalo personalizado
     ],
 
 
     # ========================================================================
-    # 2️⃣ FRECUENCIA DE COMPROBACIÓN
+    # 2️⃣ FRECUENCIA DE COMPROBACIÓN GLOBAL (bucle interno)
     # ========================================================================
-    "poll_interval_seconds": 900,  # 900s = 15min | 1800s = 30min | 3600s = 1h
+    # NOTA: Ahora cada canal tiene su propio poll_interval_seconds individual
+    # Este parámetro define cada cuánto el script comprueba si algún canal necesita actualización
+    "loop_check_interval": 60,  # 60s = comprobar cada minuto si algún canal necesita actualización
 
     # ========================================================================
     # 3️⃣ CREDENCIALES OPENAI (Resúmenes con IA)
@@ -141,7 +158,7 @@ def load_processed_videos(path):
         path: Ruta al archivo JSON con el estado
 
     Returns:
-        dict: Diccionario con formato {nombre_canal: video_id}
+        dict: Diccionario con formato {nombre_canal: {"last_video_id": str, "last_checked": timestamp}}
     """
     try:
         if not os.path.exists(path):
@@ -151,6 +168,21 @@ def load_processed_videos(path):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             print(f"[INFO] Estado cargado: {len(data)} canales en seguimiento")
+
+            # Migración automática: Convertir formato antiguo (string) a nuevo formato (dict)
+            migrated = False
+            for channel_name, value in data.items():
+                if isinstance(value, str):
+                    # Formato antiguo: solo guardaba el video_id
+                    data[channel_name] = {
+                        "last_video_id": value,
+                        "last_checked": 0  # Forzar comprobación inmediata
+                    }
+                    migrated = True
+
+            if migrated:
+                print(f"[INFO] Migrado formato antiguo a nuevo formato con timestamps")
+
             return data
     except json.JSONDecodeError as e:
         print(f"[WARN] Error al leer JSON ({e}). Creando estado nuevo.")
@@ -165,7 +197,7 @@ def save_processed_videos(path, processed_videos):
 
     Args:
         path: Ruta al archivo JSON
-        processed_videos: Diccionario con formato {nombre_canal: video_id}
+        processed_videos: Diccionario con formato {nombre_canal: {"last_video_id": str, "last_checked": timestamp}}
     """
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -176,14 +208,14 @@ def save_processed_videos(path, processed_videos):
 
 
 def get_last_processed_video_for_channel(processed_videos, channel_name):
-    """Obtiene el último video procesado para un canal específico.
+    """Obtiene información del último video procesado para un canal específico.
 
     Args:
         processed_videos: Diccionario con todos los videos procesados
         channel_name: Nombre del canal
 
     Returns:
-        str: ID del último video procesado, o None si no hay ninguno
+        dict: {"last_video_id": str, "last_checked": timestamp} o None si no hay ninguno
     """
     return processed_videos.get(channel_name)
 
@@ -714,22 +746,54 @@ def run_forever():
         try:
             # Cargar el estado de todos los canales al inicio de cada ciclo
             processed_videos = load_processed_videos(cfg["state_file"])
+            current_time = time.time()
 
             for feed_cfg in cfg["feeds"]:
+                channel_name = feed_cfg["name"]
+                channel_interval = feed_cfg.get("poll_interval_seconds", 900)  # Default 15 min
+
+                # Obtener información del último procesamiento de este canal
+                channel_data = get_last_processed_video_for_channel(processed_videos, channel_name)
+
+                # Si el canal existe, verificar si ha pasado suficiente tiempo
+                if channel_data:
+                    last_checked = channel_data.get("last_checked", 0)
+                    time_since_last_check = current_time - last_checked
+
+                    # Si no ha pasado suficiente tiempo, saltar este canal
+                    if time_since_last_check < channel_interval:
+                        remaining = int(channel_interval - time_since_last_check)
+                        print(f"[INFO] ⏳ {channel_name}: Faltan {remaining}s para próxima comprobación (intervalo: {channel_interval}s)")
+                        continue
+
+                # Ha pasado suficiente tiempo (o es la primera vez), procesar canal
+                print(f"[INFO] 🔍 Comprobando canal: {channel_name} (intervalo: {channel_interval}s)")
+
                 # Obtener el último video del feed
                 latest_video = get_latest_video(feed_cfg)
 
                 if not latest_video:
-                    print(f"[WARN] No se pudo obtener el último video de {feed_cfg['name']}\n")
+                    print(f"[WARN] No se pudo obtener el último video de {channel_name}\n")
+                    # Actualizar timestamp incluso si falla, para no intentar constantemente
+                    if not channel_data:
+                        processed_videos[channel_name] = {"last_video_id": None, "last_checked": current_time}
+                    else:
+                        channel_data["last_checked"] = current_time
+                        processed_videos[channel_name] = channel_data
+                    save_processed_videos(cfg["state_file"], processed_videos)
                     continue
 
                 # Obtener el ID del último video procesado para ESTE canal específico
-                channel_name = feed_cfg["name"]
-                last_processed_id = get_last_processed_video_for_channel(processed_videos, channel_name)
+                last_processed_id = channel_data.get("last_video_id") if channel_data else None
 
                 # Verificar si ya fue procesado
                 if latest_video["id"] == last_processed_id:
-                    print(f"[INFO] ✅ Último video ya procesado: {latest_video['title']} (Canal: {channel_name})\n")
+                    print(f"[INFO] ✅ Último video ya procesado: {latest_video['title']} (Canal: {channel_name})")
+                    # Actualizar timestamp de última comprobación
+                    channel_data["last_checked"] = current_time
+                    processed_videos[channel_name] = channel_data
+                    save_processed_videos(cfg["state_file"], processed_videos)
+                    print()
                     continue
 
                 # Nuevo video detectado
@@ -753,6 +817,7 @@ def run_forever():
                 if transcript_text is None:
                     print(f"[ERROR] ❌ No se pudo procesar el video (sin transcripción)")
 
+                    retry_minutes = channel_interval // 60
                     error_message = (
                         f"⚠️ <b>ERROR AL PROCESAR VIDEO</b>\n\n"
                         f"📺 <b>{latest_video['channel']}</b>\n"
@@ -763,14 +828,25 @@ def run_forever():
                         f"❌ <b>No se pudo obtener la transcripción</b>\n\n"
                         f"<b>Motivo:</b>\n"
                         f"• {error_reason}\n\n"
-                        f"💡 <b>Solución:</b> El script reintentará en 15 minutos.\n"
+                        f"💡 <b>Solución:</b> El script reintentará en {retry_minutes} minutos.\n"
                         f"Si el problema persiste, verifica manualmente el video."
                     )
 
                     send_telegram(telegram_cfg, error_message)
 
-                    # NO marcamos como procesado para que lo reintente después
-                    print(f"[INFO] Video NO marcado como procesado, se reintentará después\n")
+                    # NO marcamos el video como procesado, pero SÍ actualizamos el timestamp
+                    # para que reintente según el intervalo del canal (no constantemente)
+                    if not channel_data:
+                        processed_videos[channel_name] = {
+                            "last_video_id": None,
+                            "last_checked": current_time
+                        }
+                    else:
+                        # Mantener el último video procesado, solo actualizar timestamp
+                        channel_data["last_checked"] = current_time
+                        processed_videos[channel_name] = channel_data
+                    save_processed_videos(cfg["state_file"], processed_videos)
+                    print(f"[INFO] Video NO marcado como procesado, se reintentará en {channel_interval}s\n")
                     continue
 
                 # Si SÍ obtuvimos la transcripción, generamos resumen
@@ -790,8 +866,11 @@ def run_forever():
                 send_telegram(telegram_cfg, message)
 
                 # Marcamos el vídeo como procesado SOLO si todo fue exitoso
-                # Actualizamos el diccionario y guardamos
-                processed_videos[channel_name] = latest_video["id"]
+                # Actualizamos el diccionario con el ID y el timestamp
+                processed_videos[channel_name] = {
+                    "last_video_id": latest_video["id"],
+                    "last_checked": current_time
+                }
                 save_processed_videos(cfg["state_file"], processed_videos)
                 print(f"[INFO] ✅ Video procesado y guardado correctamente para el canal '{channel_name}'\n")
 
@@ -800,8 +879,9 @@ def run_forever():
             import traceback
             traceback.print_exc()
 
-        wait = cfg["poll_interval_seconds"]
-        print(f"[INFO] ⏰ Esperando {wait} segundos ({wait//60} minutos) antes de la próxima comprobación...\n")
+        # Usar el intervalo de comprobación del bucle (más corto que los intervalos de canales)
+        wait = cfg.get("loop_check_interval", 60)
+        print(f"[INFO] ⏰ Esperando {wait} segundos antes de la próxima comprobación de canales...\n")
         time.sleep(wait)
 
 
