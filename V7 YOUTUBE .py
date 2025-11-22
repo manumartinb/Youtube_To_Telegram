@@ -18,80 +18,99 @@ CONFIG = {
     # ========================================================================
     # Para añadir canales: https://www.youtube.com/@NOMBRE_CANAL → copiar ID del canal
     # Formato URL: https://www.youtube.com/feeds/videos.xml?channel_id=CHANNEL_ID
+    #
+    # IMPORTANTE: Para habilitar/deshabilitar un canal fácilmente:
+    # - "enabled": True  → Canal ACTIVO (se monitorizará)
+    # - "enabled": False → Canal DESACTIVADO (se ignorará)
 
     "feeds": [
     {
         "name": "Cárpatos",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCmJL2llHf2tEcDAjaz-LFgQ",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Option Omega",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCHFE_BeGKyV4qyQ3Q4dafmQ",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "José Luis Cava",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCvCCLJkQpRg0NdT3zNcI08A",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Iceberg Fund",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCayvFMTzAubrfBy7ul_wHFw",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Rodrigo Villanueva",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCS5LR9INN3Ly5EyV0NksbCA",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Pablo Gil",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCPQ2dheMajZPnIleYZHzblg",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Spread Greg",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC02WvbtPYyMm1dG33UAHrDA",
         "poll_interval_seconds": 1800,  # 30 minutos (ejemplo)
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Óscar López",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCjKX-osBEQxj9CrZsK9ZM9g",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "LWS",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCCVIYA5kpLvEToE8Gj8Fszw",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Vol. Vibes",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0o3EucHQKZCUagsZt6TRAA",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Theta Profits",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCzGARfberQ8nRRbsjK90BHg",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Hector Chamizo",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCfPrh2GfUkRFawG9whMacpA",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Trading Litt",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCiGVu54iO0LYQSGUktEnQog",
         "poll_interval_seconds": 3600,  # 60 minutos (ejemplo)
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     {
         "name": "Quant Py",
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UClT4BTqePQDxFHsnrSWQ8Wg",
         "poll_interval_seconds": 900,  # 15 minutos
+        "enabled": True,  # ✅ Cambiar a False para deshabilitar este canal
     },
     # Puedes seguir añadiendo más canales copiando uno de estos bloques
     # Cada canal ahora tiene su propio intervalo personalizado
+    # RECUERDA: Agrega "enabled": True/False para control fácil
     ],
 
 
@@ -750,6 +769,12 @@ def run_forever():
 
             for feed_cfg in cfg["feeds"]:
                 channel_name = feed_cfg["name"]
+
+                # Verificar si el canal está habilitado
+                if not feed_cfg.get("enabled", True):  # Default True para compatibilidad con configs antiguas
+                    print(f"[INFO] ⏸️  {channel_name}: Canal DESHABILITADO (saltar)")
+                    continue
+
                 channel_interval = feed_cfg.get("poll_interval_seconds", 900)  # Default 15 min
 
                 # Obtener información del último procesamiento de este canal
